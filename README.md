@@ -201,4 +201,5 @@ The project has been modularized for better maintainability and testability:
 
 ## License
 
+This project is licensed under the MIT License. See the LICENSE file for details.
 This project is unlicensed and proprietary.
