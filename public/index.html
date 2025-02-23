@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lyrics Crawler</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+    <div class="theme-toggle">
+        <button id="themeToggle" aria-label="Toggle dark mode">
+            🌓
+        </button>
+    </div>
+    <div class="container">
+        <h1>Lyrics Crawler</h1>
+        <div class="input-methods">
+            <div class="form-group">
+                <label for="urls">Enter URLs (one per line):</label>
+                <textarea id="urls" rows="10" placeholder="https://example.com/lyrics1&#10;https://example.com/lyrics2"></textarea>
+                <div id="urlValidation" class="validation-feedback"></div>
+            </div>
+            <div class="form-group">
+                <label for="rateLimit">Rate Limit (seconds):</label>
+                <input type="number" id="rateLimit" value="5.0" min="1.0" step="0.5" class="form-control">
+                <small>Time to wait between requests (higher = more respectful)</small>
+            </div>
+            <div class="form-group">
+                <label for="urlFile">Or upload a file with URLs:</label>
+                <input type="file" id="urlFile" accept=".txt">
+                <small>Text file with one URL per line</small>
+            </div>
+            <div class="form-group">
+                <label for="proxyFile">Proxy List File Path:</label>
+                <input type="text" id="proxyFile" placeholder="proxies.txt" class="form-control">
+                <small>Path to the proxy list file (one proxy per line)</small>
+            </div>
+        </div>
+        <div class="button-group">
+            <button id="crawlButton">Start Crawling</button>
+            <button id="downloadButton" disabled>Download CSV</button>
+        </div>
+        <div id="status" class="status">
+            <div id="statusText"></div>
+            <div class="stats">
+                <div>URLs Crawled: <span id="urlsCrawled">0</span> / <span id="totalUrls">0</span></div>
+                <div>Errors: <span id="errorCount">0</span></div>
+                <div>Missing Metadata: <span id="metadataMissing">0</span></div>
+            </div>
+            <div id="currentUrl" class="current-url"></div>
+            <div id="progress-bar" class="progress-bar">
+                <div id="progress-fill"></div>
+            </div>
+        </div>
+        <div id="metadataWarnings" class="metadata-warnings"></div>
+        <div id="errorLog" class="error-log"></div>
+    </div>
+
+    <script>
+        const socket = io();
+        const statusText = document.getElementById('statusText');
+        const urlsCrawled = document.getElementById('urlsCrawled');
+        const totalUrls = document.getElementById('totalUrls');
+        const errorCount = document.getElementById('errorCount');
+        const metadataMissing = document.getElementById('metadataMissing');
+        const currentUrl = document.getElementById('currentUrl');
+        const crawlButton = document.getElementById('crawlButton');
+        const downloadButton = document.getElementById('downloadButton');
+        const status = document.getElementById('status');
+        const errorLog = document.getElementById('errorLog');
+        const metadataWarnings = document.getElementById('metadataWarnings');
+        const urlsTextarea = document.getElementById('urls');
+        const urlValidation = document.getElementById('urlValidation');
+        const progressFill = document.getElementById('progress-fill');
+        const themeToggle = document.getElementById('themeToggle');
+
+        // Theme handling
+        function initTheme() {
+            const darkMode = localStorage.getItem('darkMode') === 'true';
+            document.body.classList.toggle('dark-mode', darkMode);
+            themeToggle.textContent = darkMode ? '☀️' : '🌓';
+        }
+
+        themeToggle.addEventListener('click', () => {
+            const isDarkMode = document.body.classList.toggle('dark-mode');
+            localStorage.setItem('darkMode', isDarkMode);
+            themeToggle.textContent = isDarkMode ? '☀️' : '🌓';
+        });
+
+        initTheme();
+
+        // URL validation
+        function validateUrls(text) {
+            const urls = text.split('\n').filter(url => url.trim());
+            const invalidUrls = [];
+            const validUrls = [];
+
+            urls.forEach(url => {
+                try {
+                    new URL(url);
+                    validUrls.push(url);
+                } catch {
+                    invalidUrls.push(url);
+                }
+            });
+
+            return { validUrls, invalidUrls };
+        }
+
+        urlsTextarea.addEventListener('input', () => {
+            const { validUrls, invalidUrls } = validateUrls(urlsTextarea.value);
+            
+            if (invalidUrls.length > 0) {
+                urlValidation.textContent = `Invalid URLs: ${invalidUrls.join(', ')}`;
+                urlValidation.className = 'validation-feedback error';
+                crawlButton.disabled = true;
+            } else if (validUrls.length > 0) {
+                urlValidation.textContent = `${validUrls.length} valid URL(s)`;
+                urlValidation.className = 'validation-feedback success';
+                crawlButton.disabled = false;
+            } else {
+                urlValidation.textContent = '';
+                urlValidation.className = 'validation-feedback';
+                crawlButton.disabled = true;
+            }
+        });
+
+        // File upload handling
+        document.getElementById('urlFile').addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    urlsTextarea.value = e.target.result;
+                    urlsTextarea.dispatchEvent(new Event('input'));
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        function updateProgress(current, total) {
+            const percent = (current / total) * 100;
+            progressFill.style.width = `${percent}%`;
+        }
+
+        function addErrorMessage(message, type) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = `error-message ${type}`;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            errorDiv.innerHTML = `<span class="timestamp">[${timestamp}]</span> ${message}`;
+            
+            errorLog.insertBefore(errorDiv, errorLog.firstChild);
+
+            // Limit error messages to last 50
+            while (errorLog.children.length > 50) {
+                errorLog.removeChild(errorLog.lastChild);
+            }
+        }
+
+        function clearLogs() {
+            errorLog.innerHTML = '';
+            metadataWarnings.innerHTML = '';
+            progressFill.style.width = '0%';
+        }
+
+        downloadButton.addEventListener('click', () => {
+            window.location.href = '/download';
+        });
+
+        crawlButton.addEventListener('click', () => {
+            const urls = urlsTextarea.value;
+            
+            // Reset UI
+            status.className = 'status processing';
+            statusText.textContent = 'Starting crawler...';
+            crawlButton.disabled = true;
+            downloadButton.disabled = true;
+            clearLogs();
+            metadataMissing.textContent = '0';
+            
+            // Start crawling
+            socket.emit('startCrawling', { urls });
+        });
+
+        // Handle status updates
+        socket.on('statusUpdate', (data) => {
+            if (data.status === 'update') {
+                const stats = data.data;
+                urlsCrawled.textContent = stats.urls_crawled;
+                totalUrls.textContent = stats.total_urls;
+                errorCount.textContent = stats.errors;
+                metadataMissing.textContent = stats.metadata_missing || 0;
+                updateProgress(stats.urls_crawled, stats.total_urls);
+            } else if (data.status === 'crawling') {
+                currentUrl.textContent = `Currently crawling: ${data.url}`;
+            } else if (data.status === 'started') {
+                totalUrls.textContent = data.data.total_urls;
+            } else if (data.status === 'metadata_warning') {
+                const warningDiv = document.createElement('div');
+                warningDiv.className = 'metadata-warning';
+                warningDiv.textContent = data.message;
+                metadataWarnings.insertBefore(warningDiv, metadataWarnings.firstChild);
+            } else if (data.status === 'restore') {
+                // Restore previous progress
+                urlsCrawled.textContent = data.data.urls_crawled;
+                totalUrls.textContent = data.data.total_urls;
+                errorCount.textContent = data.data.errors;
+                metadataMissing.textContent = data.data.metadata_missing || 0;
+                updateProgress(data.data.urls_crawled, data.data.total_urls);
+            }
+        });
+
+        socket.on('crawlError', (data) => {
+            if (data.type === 'validation') {
+                status.className = 'status error';
+                statusText.textContent = data.message;
+                crawlButton.disabled = false;
+            }
+            addErrorMessage(data.message, data.type);
+        });
+
+        socket.on('crawlComplete', (data) => {
+            status.className = 'status success';
+            statusText.textContent = data.message;
+            currentUrl.textContent = '';
+            crawlButton.disabled = false;
+            downloadButton.disabled = false;
+            
+            const missingCount = parseInt(metadataMissing.textContent);
+            if (missingCount > 0) {
+                addErrorMessage(
+                    `Crawling completed with ${missingCount} URLs missing metadata. Check the warnings above.`,
+                    'warning'
+                );
+            }
+        });
+
+        // Handle socket disconnection
+        socket.on('disconnect', () => {
+            addErrorMessage('Lost connection to server. Please refresh the page.', 'error');
+            crawlButton.disabled = true;
+            downloadButton.disabled = true;
+        });
+
+        // Handle socket reconnection
+        socket.on('connect', () => {
+            addErrorMessage('Reconnected to server.', 'success');
+            crawlButton.disabled = false;
+        });
+    </script>
+</body>
+</html>

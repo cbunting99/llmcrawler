@@ -1,0 +1,55 @@
+{
+    "SELECTORS": {
+        "genius.com": {
+            "title": [
+                "h1[class*=\"SongHeader__Title\"]",
+                "h1.header_with_cover_art-primary_info-title",
+                "meta[property=\"og:title\"]",
+                "title"
+            ],
+            "artist": [
+                "a[class*=\"SongHeader__Artist\"]",
+                "a.header_with_cover_art-primary_info-primary_artist",
+                "meta[property=\"og:site_name\"]",
+                "meta[name=\"twitter:creator\"]",
+                "span[class*=\"SongHeader__Artist\"]",
+                "a[href*=\"/artists/\"]"
+            ],
+            "lyrics": [
+                "div[class*=\"Lyrics__Container\"]",
+                "div[class*=\"lyrics\"]",
+                ".song_body-lyrics"
+            ]
+        },
+        "default": {
+            "title": [
+                "h1.song-title",
+                "meta[property=\"og:title\"]",
+                ".song-header h1",
+                "title",
+                "meta[name=\"twitter:title\"]"
+            ],
+            "artist": [
+                "h2.artist-name",
+                "meta[property=\"og:artist\"]",
+                ".artist-header h2",
+                ".artist-name",
+                "meta[name=\"artist\"]",
+                "meta[name=\"twitter:creator\"]",
+                "a[href*=\"/artist/\"]",
+                "span.artist",
+                ".author"
+            ],
+            "lyrics": [
+                "div.lyrics",
+                ".lyric-content",
+                ".song-lyrics",
+                "div[class*=\"lyrics\"]",
+                ".text-lyrics"
+            ]
+        }
+    },
+    "temp_dir": "temp",
+    "proxy_file": "proxies.txt",
+    "rate_limit": 10.0
+}
